@@ -1,0 +1,17 @@
+{
+  "name": "wujie-chat",
+  "version": "1.0.0",
+  "description": "無界茶台 AI 客服",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "node-fetch": "^2.7.0",
+    "mysql2": "^3.6.0"
+  }
+}

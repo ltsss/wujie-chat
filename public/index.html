@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>無界茶台 - 智能客服</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 聊天窗口 -->
+  <div class="chat-container" id="chatContainer">
+    <!-- 头部 -->
+    <div class="chat-header">
+      <div class="header-info">
+        <div class="avatar">🍵</div>
+        <div class="title">
+          <h3>無界茶台客服</h3>
+          <span class="status">
+            <span class="status-dot online"></span>
+            小珍在线
+          </span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-icon" id="clearBtn" title="清空对话">🗑️</button>
+        <button class="btn-icon" id="closeBtn" title="最小化">−</button>
+      </div>
+    </div>
+
+    <!-- 消息区域 -->
+    <div class="chat-messages" id="chatMessages">
+      <!-- 欢迎消息 -->
+      <div class="message bot">
+        <div class="avatar">🍵</div>
+        <div class="content">
+          <p>您好！我是小珍，無界茶台的智能客服助手 🌿</p>
+          <p>请问有什么可以帮您？</p>
+          <div class="quick-replies">
+            <button class="quick-btn" data-msg="了解产品">了解产品</button>
+            <button class="quick-btn" data-msg="了解价格">了解价格</button>
+            <button class="quick-btn" data-msg="公司信息">公司信息</button>
+            <button class="quick-btn" data-msg="联系客服">联系客服</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 输入区域 -->
+    <div class="chat-input">
+      <div class="input-wrapper">
+        <textarea 
+          id="messageInput" 
+          placeholder="请输入您的问题..."
+          rows="1"
+        ></textarea>
+        <button class="btn-send" id="sendBtn">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-actions">
+        <button class="btn-transfer" id="transferBtn">
+          <span>👤</span>
+          转人工客服
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 转人工弹窗 -->
+  <div class="modal" id="transferModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>转接人工客服</h3>
+        <button class="btn-close" id="closeModal">×</button>
+      </div>
+      <div class="modal-body">
+        <p>人工客服将为您继续服务</p>
+        <p class="note">之前的聊天记录会同步给客服</p>
+        <textarea 
+          id="transferReason" 
+          placeholder="请简要描述您的问题（可选）"
+          rows="3"
+        ></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="cancelTransfer">取消</button>
+        <button class="btn-primary" id="confirmTransfer">确认转接</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 悬浮按钮（最小化时显示） -->
+  <button class="fab" id="fabBtn" style="display: none;">
+    <span>💬</span>
+  </button>
+
+  <script src="app.js"></script>
+</body>
+</html>

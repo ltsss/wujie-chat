@@ -1,0 +1,259 @@
+{
+  "app": {
+    "name": "無界茶台客服助手-信息收集版",
+    "mode": "chatflow"
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "data": {
+          "title": "开始",
+          "variables": [
+            {
+              "variable": "query",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "intent_recognition",
+        "type": "llm",
+        "data": {
+          "title": "意图识别",
+          "model": {
+            "provider": "openai",
+            "name": "gpt-4o-mini",
+            "mode": "chat"
+          },
+          "prompt_template": [
+            {
+              "role": "system",
+              "text": "你是無界茶台的意图识别助手。分析用户输入，判断意图类别：\n\n【意图类别】\n1. TRANSFER - 用户要求转人工客服\n   关键词：转人工、人工客服、找真人、人工、客服在吗、有人吗、不要机器人\n\n2. COLLECT - 正在收集购买信息（预算、城市、地点、材质、系列）\n\n3. NORMAL - 其他普通咨询\n\n【输出要求】\n只输出意图类别名称（大写），不要解释。\n例如：TRANSFER 或 COLLECT 或 NORMAL"
+            },
+            {
+              "role": "user",
+              "text": "用户输入：{{#start.query#}}\n\n意图类别："
+            }
+          ],
+          "variables": [
+            {
+              "variable": "intent",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      {
+        "id": "check_vars",
+        "type": "code",
+        "data": {
+          "title": "检查已收集变量",
+          "code": "def main(query: str, budget: str = \"\", city: str = \"\", location: str = \"\", material: str = \"\", series: str = \"\") -> dict:\n    query = query.strip()\n    \n    # 识别预算\n    budget_map = {\n        \"1\": \"5000以下\", \"5000以下\": \"5000以下\",\n        \"2\": \"5000-10000\", \"5000-10000\": \"5000-10000\",\n        \"3\": \"10000-20000\", \"10000-20000\": \"10000-20000\",\n        \"4\": \"20000以上\", \"20000以上\": \"20000以上\"\n    }\n    \n    # 识别使用地点\n    location_map = {\n        \"1\": \"家庭客厅\", \"家庭\": \"家庭客厅\", \"客厅\": \"家庭客厅\",\n        \"2\": \"办公室\", \"办公\": \"办公室\",\n        \"3\": \"茶室\",\n        \"4\": \"会所/酒店\", \"会所\": \"会所/酒店\", \"酒店\": \"会所/酒店\"\n    }\n    \n    # 识别材质\n    material_map = {\n        \"1\": \"实木\", \"实木\": \"实木\", \"胡桃木\": \"实木\", \"花梨\": \"实木\",\n        \"2\": \"岩板\", \"岩板\": \"岩板\",\n        \"3\": \"智能\", \"智能\": \"智能\", \"科技\": \"智能\"\n    }\n    \n    # 识别系列\n    series_map = {\n        \"1\": \"经典系列\", \"经典\": \"经典系列\",\n        \"2\": \"现代系列\", \"现代\": \"现代系列\",\n        \"3\": \"禅意系列\", \"禅意\": \"禅意系列\"\n    }\n    \n    # 更新变量\n    new_budget = budget\n    new_city = city\n    new_location = location\n    new_material = material\n    new_series = series\n    \n    # 检查是否匹配预算\n    if not budget and query in budget_map:\n        new_budget = budget_map[query]\n    # 检查是否匹配地点\n    elif not location and query in location_map:\n        new_location = location_map[query]\n    # 检查是否匹配材质\n    elif not material and query in material_map:\n        new_material = material_map[query]\n    # 检查是否匹配系列\n    elif not series and query in series_map:\n        new_series = series_map[query]\n    # 否则当作城市（如果还没填且长度合适）\n    elif not city and len(query) >= 2 and query not in budget_map and query not in location_map:\n        new_city = query\n    \n    # 检查缺失字段\n    missing = []\n    if not new_budget:\n        missing.append(\"budget\")\n    if not new_city:\n        missing.append(\"city\")\n    if not new_location:\n        missing.append(\"location\")\n    if not new_material:\n        missing.append(\"material\")\n    if not new_series:\n        missing.append(\"series\")\n    \n    return {\n        \"budget\": new_budget,\n        \"city\": new_city,\n        \"location\": new_location,\n        \"material\": new_material,\n        \"series\": new_series,\n        \"missing\": missing,\n        \"next\": missing[0] if missing else \"\",\n        \"complete\": len(missing) == 0\n    }",
+          "inputs": [
+            {"name": "query", "type": "string", "value": "{{#start.query#}}"},
+            {"name": "budget", "type": "string", "value": "{{#会话变量.budget#}}"},
+            {"name": "city", "type": "string", "value": "{{#会话变量.city#}}"},
+            {"name": "location", "type": "string", "value": "{{#会话变量.location#}}"},
+            {"name": "material", "type": "string", "value": "{{#会话变量.material#}}"},
+            {"name": "series", "type": "string", "value": "{{#会话变量.series#}}"}
+          ],
+          "outputs": [
+            {"name": "budget", "type": "string"},
+            {"name": "city", "type": "string"},
+            {"name": "location", "type": "string"},
+            {"name": "material", "type": "string"},
+            {"name": "series", "type": "string"},
+            {"name": "missing", "type": "array[string]"},
+            {"name": "next", "type": "string"},
+            {"name": "complete", "type": "boolean"}
+          ]
+        }
+      },
+      {
+        "id": "variable_assign",
+        "type": "variable-assigner",
+        "data": {
+          "title": "更新会话变量",
+          "variables": [
+            {"variable": "budget", "value": "{{#检查变量.budget#}}"},
+            {"variable": "city", "value": "{{#检查变量.city#}}"},
+            {"variable": "location", "value": "{{#检查变量.location#}}"},
+            {"variable": "material", "value": "{{#检查变量.material#}}"},
+            {"variable": "series", "value": "{{#检查变量.series#}}"}
+          ]
+        }
+      },
+      {
+        "id": "branch",
+        "type": "if-else",
+        "data": {
+          "title": "条件分支",
+          "conditions": [
+            {
+              "id": "transfer",
+              "name": "转人工",
+              "expression": "{{#意图识别.intent#}} == 'TRANSFER'"
+            },
+            {
+              "id": "complete",
+              "name": "信息齐全",
+              "expression": "{{#检查变量.complete#}} == true"
+            },
+            {
+              "id": "ask_budget",
+              "name": "问预算",
+              "expression": "{{#检查变量.next#}} == 'budget'"
+            },
+            {
+              "id": "ask_city",
+              "name": "问城市",
+              "expression": "{{#检查变量.next#}} == 'city'"
+            },
+            {
+              "id": "ask_location",
+              "name": "问地点",
+              "expression": "{{#检查变量.next#}} == 'location'"
+            },
+            {
+              "id": "ask_material",
+              "name": "问材质",
+              "expression": "{{#检查变量.next#}} == 'material'"
+            },
+            {
+              "id": "ask_series",
+              "name": "问系列",
+              "expression": "{{#检查变量.next#}} == 'series'"
+            }
+          ]
+        }
+      },
+      {
+        "id": "http_transfer",
+        "type": "http-request",
+        "data": {
+          "title": "调用转人工API",
+          "method": "POST",
+          "url": "http://localhost:3000/api/transfer",
+          "headers": "Content-Type: application/json",
+          "body": "{\n  \"userId\": \"{{#sys.user_id#}}\",\n  \"conversationId\": \"{{#sys.conversation_id#}}\",\n  \"reason\": \"{{#start.query#}}\"\n}",
+          "timeout": 10
+        }
+      },
+      {
+        "id": "reply_transfer",
+        "type": "answer",
+        "data": {
+          "title": "转人工回复",
+          "answer": "正在为您转接人工客服，请稍候...\n\n之前的聊天记录会同步给客服，请耐心等待。"
+        }
+      },
+      {
+        "id": "ask_budget_node",
+        "type": "answer",
+        "data": {
+          "title": "询问预算",
+          "answer": "为了更好地为您推荐茶台，请告诉我：\n\n【1/5】您的预算范围？\n1️⃣ 5000以下\n2️⃣ 5000-10000\n3️⃣ 10000-20000\n4️⃣ 20000以上\n\n请回复数字 1-4"
+        }
+      },
+      {
+        "id": "ask_city_node",
+        "type": "answer",
+        "data": {
+          "title": "询问城市",
+          "answer": "【2/5】您所在的城市？\n（直接回复城市名，如：上海、北京）"
+        }
+      },
+      {
+        "id": "ask_location_node",
+        "type": "answer",
+        "data": {
+          "title": "询问使用地点",
+          "answer": "【3/5】主要使用场景？\n1️⃣ 家庭客厅\n2️⃣ 办公室\n3️⃣ 茶室\n4️⃣ 会所/酒店\n\n请回复数字 1-4"
+        }
+      },
+      {
+        "id": "ask_material_node",
+        "type": "answer",
+        "data": {
+          "title": "询问材质",
+          "answer": "【4/5】您偏好的材质？\n1️⃣ 实木（传统典雅）\n2️⃣ 岩板（现代简约）\n3️⃣ 智能（科技便捷）\n\n请回复数字 1-3"
+        }
+      },
+      {
+        "id": "ask_series_node",
+        "type": "answer",
+        "data": {
+          "title": "询问系列",
+          "answer": "【5/5】您喜欢的风格系列？\n1️⃣ 经典系列\n2️⃣ 现代系列\n3️⃣ 禅意系列\n\n请回复数字 1-3"
+        }
+      },
+      {
+        "id": "knowledge_retrieval",
+        "type": "knowledge-retrieval",
+        "data": {
+          "title": "知识检索",
+          "query_variable": "{{#start.query#}}",
+          "knowledge_id": "無界茶台客服知识库-pgc",
+          "top_k": 3
+        }
+      },
+      {
+        "id": "recommend_llm",
+        "type": "llm",
+        "data": {
+          "title": "产品推荐",
+          "model": {
+            "provider": "openai",
+            "name": "gpt-4o-mini",
+            "mode": "chat"
+          },
+          "prompt_template": [
+            {
+              "role": "system",
+              "text": "你是無界茶台的顾问小珍，专业、热情、温润友好。根据用户信息推荐合适的茶台。"
+            },
+            {
+              "role": "user",
+              "text": "【用户需求】\n- 预算：{{#会话变量.budget#}}\n- 城市：{{#会话变量.city#}}\n- 使用场景：{{#会话变量.location#}}\n- 偏好材质：{{#会话变量.material#}}\n- 风格系列：{{#会话变量.series#}}\n\n【知识库信息】\n{{#知识检索.result#}}\n\n请：\n1. 根据预算和偏好推荐1-2款最适合的茶台\n2. 说明推荐理由（尺寸适配、风格匹配、性价比等）\n3. 告知大概价格区间\n4. 询问是否需要预约到店体验或安排顾问详细沟通\n\n语气专业、亲切，像经验丰富的茶台顾问。"
+            }
+          ]
+        }
+      },
+      {
+        "id": "final_answer",
+        "type": "answer",
+        "data": {
+          "title": "最终回复",
+          "answer": "{{#产品推荐.text#}}"
+        }
+      }
+    ],
+    "edges": [
+      {"source": "start", "target": "intent_recognition"},
+      {"source": "intent_recognition", "target": "check_vars"},
+      {"source": "check_vars", "target": "variable_assign"},
+      {"source": "variable_assign", "target": "branch"},
+      {"source": "branch", "target": "http_transfer", "condition": "transfer"},
+      {"source": "branch", "target": "knowledge_retrieval", "condition": "complete"},
+      {"source": "branch", "target": "ask_budget_node", "condition": "ask_budget"},
+      {"source": "branch", "target": "ask_city_node", "condition": "ask_city"},
+      {"source": "branch", "target": "ask_location_node", "condition": "ask_location"},
+      {"source": "branch", "target": "ask_material_node", "condition": "ask_material"},
+      {"source": "branch", "target": "ask_series_node", "condition": "ask_series"},
+      {"source": "http_transfer", "target": "reply_transfer"},
+      {"source": "knowledge_retrieval", "target": "recommend_llm"},
+      {"source": "recommend_llm", "target": "final_answer"}
+    ]
+  },
+  "conversation_variables": [
+    {"name": "budget", "type": "string", "default": ""},
+    {"name": "city", "type": "string", "default": ""},
+    {"name": "location", "type": "string", "default": ""},
+    {"name": "material", "type": "string", "default": ""},
+    {"name": "series", "type": "string", "default": ""}
+  ]
+}
