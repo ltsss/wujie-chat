@@ -465,11 +465,11 @@ class ChatApp {
     setTimeout(() => {
       this.addMessage(`
         ✅ 正在跳转到人工客服...<br>
-        如未自动跳转，<a href="https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1" target="_blank">请点击这里</a>
+        如未自动跳转，<a href="https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1">请点击这里</a>
       `, 'system');
       
-      // 打开企业微信客服链接
-      window.open('https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1', '_blank');
+      // 直接跳转（当前页面打开）
+      window.location.href = 'https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1';
     }, 1000);
   }
 
