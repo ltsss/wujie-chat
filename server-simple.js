@@ -79,16 +79,15 @@ const server = http.createServer((req, res) => {
     
     console.log('微信验证请求:', { msg_signature, timestamp, nonce, echostr });
     
-    // 验证签名
-    if (echostr && WECHAT_CONFIG.token) {
-      const signature = getSignature(WECHAT_CONFIG.token, timestamp, nonce, echostr);
-      console.log('计算签名:', signature);
-      console.log('收到签名:', msg_signature);
+    // 企业微信验证：直接返回 echostr（简化处理）
+    if (echostr) {
+      // 解码 URL 编码的 echostr
+      const decodedEchostr = decodeURIComponent(echostr);
+      console.log('解码后 echostr:', decodedEchostr);
       
-      // 返回 echostr
-      res.writeHead(200);
-      res.end(echostr);
-      console.log('返回 echostr:', echostr);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(decodedEchostr);
+      console.log('返回 echostr:', decodedEchostr);
       return;
     }
     
