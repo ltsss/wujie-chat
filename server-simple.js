@@ -79,8 +79,13 @@ const server = http.createServer((req, res) => {
     
     console.log('微信验证请求:', { msg_signature, timestamp, nonce, echostr });
     
-    // 如果有 echostr，直接返回（简化验证）
-    if (echostr) {
+    // 验证签名
+    if (echostr && WECHAT_CONFIG.token) {
+      const signature = getSignature(WECHAT_CONFIG.token, timestamp, nonce, echostr);
+      console.log('计算签名:', signature);
+      console.log('收到签名:', msg_signature);
+      
+      // 返回 echostr
       res.writeHead(200);
       res.end(echostr);
       console.log('返回 echostr:', echostr);
