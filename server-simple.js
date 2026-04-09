@@ -1,6 +1,39 @@
 // 企业微信客服服务 - 完整版
 const http = require('http');
 const crypto = require('crypto');
+const https = require('https');
+
+// 简单的 fetch 实现（Node.js 16 没有内置 fetch）
+function fetch(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const client = urlObj.protocol === 'https:' ? https : http;
+    
+    const req = client.request(url, {
+      method: options.method || 'GET',
+      headers: options.headers || {}
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          json: () => Promise.resolve(JSON.parse(data)),
+          text: () => Promise.resolve(data)
+        });
+      });
+    });
+    
+    req.on('error', reject);
+    
+    if (options.body) {
+      req.write(options.body);
+    }
+    
+    req.end();
+  });
+}
 
 const PORT = 3000;
 
@@ -62,6 +95,105 @@ function getSignature(token, timestamp, nonce, encrypt) {
   const arr = [token, timestamp, nonce, encrypt].sort();
   const str = arr.join('');
   return crypto.createHash('sha1').update(str).digest('hex');
+}
+
+// Dify AI 配置
+const DIFY_CONFIG = {
+  apiKey: 'app-2wNgRmooOPx0GZevdxwKMYor',
+  apiUrl: 'https://api.dify.ai/v1'
+};
+
+// 调用 Dify AI
+async function callDifyAI(message, userId) {
+  try {
+    console.log('调用 Dify AI:', message);
+    
+    const response = await fetch(`${DIFY_CONFIG.apiUrl}/chat-messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${DIFY_CONFIG.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputs: {},
+        query: message,
+        response_mode: 'blocking',
+        conversation_id: '',
+        user: userId
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Dify API 错误: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('Dify 回复:', data.answer);
+    return data.answer;
+  } catch (error) {
+    console.error('Dify 调用失败:', error.message);
+    return '抱歉，我暂时无法回答，请稍后再试。';
+  }
+}
+
+// 获取企业微信 AccessToken
+let accessToken = null;
+let tokenExpireTime = 0;
+
+async function getAccessToken() {
+  if (accessToken && Date.now() < tokenExpireTime) {
+    return accessToken;
+  }
+  
+  try {
+    const url = `https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${WECHAT_CONFIG.corpid}&corpsecret=${WECHAT_CONFIG.secret}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.errcode === 0) {
+      accessToken = data.access_token;
+      tokenExpireTime = Date.now() + (data.expires_in - 300) * 1000;
+      console.log('AccessToken 获取成功');
+      return accessToken;
+    } else {
+      throw new Error(`获取 Token 失败: ${data.errmsg}`);
+    }
+  } catch (error) {
+    console.error('获取 AccessToken 失败:', error.message);
+    throw error;
+  }
+}
+
+// 发送微信消息给用户
+async function sendWechatMessage(userId, content) {
+  try {
+    const token = await getAccessToken();
+    const url = `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        touser: userId,
+        msgtype: 'text',
+        agentid: WECHAT_CONFIG.agentid,
+        text: { content: content }
+      })
+    });
+    
+    const data = await response.json();
+    if (data.errcode === 0) {
+      console.log('微信消息发送成功');
+      return true;
+    } else {
+      console.error('微信消息发送失败:', data.errmsg);
+      return false;
+    }
+  } catch (error) {
+    console.error('发送微信消息失败:', error.message);
+    return false;
+  }
 }
 
 // 解析 URL 参数
@@ -147,7 +279,7 @@ const server = http.createServer((req, res) => {
   if ((url.startsWith('/api/wechat/callback') || url.startsWith('//wechat/callback')) && method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       console.log('收到微信消息:', body);
       
       // 解析 XML
@@ -166,6 +298,17 @@ const server = http.createServer((req, res) => {
           const message = msgMatch[1];
           const fromUser = fromUserMatch[1];
           console.log('用户消息:', fromUser, message);
+          
+          // 调用 Dify AI 回复
+          try {
+            const difyResponse = await callDifyAI(message, fromUser);
+            if (difyResponse) {
+              // 发送回复给用户
+              await sendWechatMessage(fromUser, difyResponse);
+            }
+          } catch (error) {
+            console.error('AI 回复失败:', error.message);
+          }
         }
       }
       
