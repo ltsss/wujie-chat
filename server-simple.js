@@ -314,8 +314,10 @@ const server = http.createServer((req, res) => {
           try {
             const difyResponse = await callDifyAI(message, fromUser);
             
-            // 检查是否转人工（Dify 返回 JSON 格式 {"transfer": true, "message": "..."}）
-            if (difyResponse && typeof difyResponse === 'object' && difyResponse.transfer === true) {
+            // 检查是否转人工（Dify 返回文字，包含 [TRANSFER] 标记）
+            const replyText = typeof difyResponse === 'object' ? difyResponse.message : difyResponse;
+            
+            if (replyText && replyText.includes('[TRANSFER]')) {
               // 保存转人工请求
               memoryStorage.transfers.push({
                 id: Date.now().toString(),
@@ -325,15 +327,15 @@ const server = http.createServer((req, res) => {
                 created_at: new Date()
               });
               
-              // 发送转人工提示
-              await sendWechatMessage(fromUser, difyResponse.message || '正在为您转接人工客服，请稍候...');
+              // 发送转人工提示（去掉 [TRANSFER] 标记）
+              const cleanMessage = replyText.replace('[TRANSFER]', '').trim();
+              await sendWechatMessage(fromUser, cleanMessage || '正在为您转接人工客服，请稍候...');
               console.log('转人工请求已记录:', fromUser);
               
               // TODO: 调用企业微信 API 真正转接到人工客服
               // await transferToHumanAgent(fromUser);
-            } else if (difyResponse) {
+            } else if (replyText) {
               // 发送 AI 回复给用户
-              const replyText = typeof difyResponse === 'object' ? difyResponse.message : difyResponse;
               await sendWechatMessage(fromUser, replyText);
             }
           } catch (error) {
