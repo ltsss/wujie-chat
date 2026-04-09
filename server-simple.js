@@ -299,15 +299,34 @@ const server = http.createServer((req, res) => {
           const fromUser = fromUserMatch[1];
           console.log('用户消息:', fromUser, message);
           
-          // 调用 Dify AI 回复
-          try {
-            const difyResponse = await callDifyAI(message, fromUser);
-            if (difyResponse) {
-              // 发送回复给用户
-              await sendWechatMessage(fromUser, difyResponse);
+          // 检查是否是转人工请求
+          const transferKeywords = ['转人工', '人工客服', '找客服', '人工', '客服'];
+          const isTransferRequest = transferKeywords.some(keyword => message.includes(keyword));
+          
+          if (isTransferRequest) {
+            // 保存转人工请求
+            memoryStorage.transfers.push({
+              id: Date.now().toString(),
+              user_id: fromUser,
+              message: message,
+              status: 'pending',
+              created_at: new Date()
+            });
+            
+            // 发送转人工提示
+            await sendWechatMessage(fromUser, '已为您转接人工客服，请稍候，客服人员将尽快为您服务。');
+            console.log('转人工请求已记录:', fromUser);
+          } else {
+            // 调用 Dify AI 回复
+            try {
+              const difyResponse = await callDifyAI(message, fromUser);
+              if (difyResponse) {
+                // 发送回复给用户
+                await sendWechatMessage(fromUser, difyResponse);
+              }
+            } catch (error) {
+              console.error('AI 回复失败:', error.message);
             }
-          } catch (error) {
-            console.error('AI 回复失败:', error.message);
           }
         }
       }
@@ -327,6 +346,60 @@ const server = http.createServer((req, res) => {
       agentid: WECHAT_CONFIG.agentid,
       callback_url: 'http://www.wujietea.com/kefu/api/wechat/callback'
     }));
+    return;
+  }
+
+  // 获取转人工列表（客服后台用）
+  if (url === '/api/transfers' && method === 'GET') {
+    const { status } = query;
+    let transfers = memoryStorage.transfers;
+    if (status) {
+      transfers = transfers.filter(t => t.status === status);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: true, transfers: transfers.slice(-50) }));
+    return;
+  }
+
+  // 更新转人工状态
+  if (url.startsWith('/api/transfers/') && method === 'POST') {
+    const id = url.split('/').pop();
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const transfer = memoryStorage.transfers.find(t => t.id === id);
+        if (transfer) {
+          transfer.status = data.status || 'processing';
+          transfer.updated_at = new Date();
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // 客服主动发送消息给用户
+  if (url === '/api/wechat/send' && method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const { userId, content } = data;
+        const success = await sendWechatMessage(userId, content);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success }));
+      } catch (e) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: e.message }));
+      }
+    });
     return;
   }
 
