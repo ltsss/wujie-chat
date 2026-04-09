@@ -4,9 +4,13 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const path = require('path');
 const db = require('./database');
+const WechatWorkService = require('./wechat-service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 企业微信服务
+const wechatService = new WechatWorkService();
 
 // 中间件
 app.use(cors());
@@ -44,6 +48,86 @@ app.get('/api/health', async (req, res) => {
     database: dbStatus,
     time: new Date().toISOString() 
   });
+});
+
+// ========== 企业微信客服接口 ==========
+
+// 企业微信消息回调验证（用于配置回调URL时验证）
+app.get('/api/wechat/callback', (req, res) => {
+  const { msg_signature, timestamp, nonce, echostr } = req.query;
+  console.log('微信回调验证:', { msg_signature, timestamp, nonce, echostr });
+  // 返回 echostr 表示验证通过
+  res.send(echostr);
+});
+
+// 企业微信消息接收
+app.post('/api/wechat/callback', async (req, res) => {
+  try {
+    console.log('收到微信消息:', req.body);
+    const { ToUserName, FromUserName, CreateTime, MsgType, Content } = req.body;
+    
+    if (MsgType === 'text' && Content) {
+      // 调用 Dify AI 回复
+      const difyResponse = await fetch(`${DIFY_API_URL}/chat-messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${DIFY_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          inputs: {},
+          query: Content,
+          response_mode: 'blocking',
+          conversation_id: '',
+          user: FromUserName
+        })
+      });
+
+      if (difyResponse.ok) {
+        const data = await difyResponse.json();
+        // 发送回复给用户
+        await wechatService.sendMessage(FromUserName, 'text', data.answer);
+      }
+    }
+    
+    res.send('success');
+  } catch (error) {
+    console.error('微信回调处理错误:', error);
+    res.send('success'); // 微信要求必须返回 success
+  }
+});
+
+// 主动发送消息给微信用户
+app.post('/api/wechat/send', async (req, res) => {
+  try {
+    const { userId, content } = req.body;
+    const result = await wechatService.sendMessage(userId, 'text', content);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('发送微信消息错误:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取客服账号列表
+app.get('/api/wechat/kf-accounts', async (req, res) => {
+  try {
+    const accounts = await wechatService.getKfAccountList();
+    res.json({ success: true, accounts });
+  } catch (error) {
+    console.error('获取客服账号错误:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// 获取 AccessToken（调试用）
+app.get('/api/wechat/token', async (req, res) => {
+  try {
+    const token = await wechatService.getAccessToken();
+    res.json({ success: true, token: token.substring(0, 10) + '...' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // 发送消息给 Dify
