@@ -416,14 +416,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 聊天接口
+  // 前端聊天接口
   if (url === '/api/chat' && method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', () => {
+    req.on('end', async () => {
       try {
         const data = JSON.parse(body);
-        const { message, userId } = data;
+        const { message, userId, conversationId } = data;
         
         // 保存消息
         memoryStorage.messages.push({
@@ -433,15 +433,41 @@ const server = http.createServer((req, res) => {
           created_at: new Date()
         });
 
-        // 模拟 AI 回复
-        const answer = `收到您的消息：${message}`;
+        // 调用 Dify AI
+        const difyResponse = await callDifyAI(message, userId);
+        const replyText = typeof difyResponse === 'object' ? difyResponse.message : difyResponse;
         
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          success: true,
-          answer: answer,
-          conversationId: Date.now().toString()
-        }));
+        // 检查是否转人工
+        if (replyText && replyText.includes('[TRANSFER]')) {
+          // 保存转人工请求
+          memoryStorage.transfers.push({
+            id: Date.now().toString(),
+            user_id: userId,
+            message: message,
+            status: 'pending',
+            created_at: new Date()
+          });
+          
+          // 去掉 [TRANSFER] 标记
+          const cleanMessage = replyText.replace('[TRANSFER]', '').trim();
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            transfer: true,
+            answer: cleanMessage,
+            conversationId: conversationId || Date.now().toString()
+          }));
+        } else {
+          // 正常 AI 回复
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            transfer: false,
+            answer: replyText,
+            conversationId: conversationId || Date.now().toString()
+          }));
+        }
       } catch (e) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: e.message }));

@@ -4,9 +4,8 @@ class ChatApp {
     this.conversationId = '';
     this.userId = this.generateUserId();
     this.isTyping = false;
-    // Dify API 配置（前端直连）
-    this.difyApiKey = 'app-2wNgRmooOPx0GZevdxwKMYor';
-    this.difyApiUrl = 'https://api.dify.ai/v1/chat-messages';
+    // 服务器 API 配置
+    this.apiUrl = '/kefu/api/chat';  // 调用我们自己的服务器
     
     // 收集的信息
     this.collectedInfo = {
@@ -300,23 +299,20 @@ class ChatApp {
     this.sendToDify(message);
   }
 
-  // 直接发送给 Dify API
+  // 发送给服务器 API
   async sendToDify(message) {
     this.showTyping();
 
     try {
-      const response = await fetch(this.difyApiUrl, {
+      const response = await fetch(this.apiUrl, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.difyApiKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          inputs: {},
-          query: message,
-          response_mode: 'blocking',
-          conversation_id: this.conversationId || '',
-          user: this.userId
+          message: message,
+          userId: this.userId,
+          conversationId: this.conversationId || ''
         })
       });
 
@@ -327,23 +323,55 @@ class ChatApp {
       const data = await response.json();
       this.hideTyping();
 
-      // 保存会话 ID
-      this.conversationId = data.conversation_id;
-      localStorage.setItem('wujie_conversation_id', this.conversationId);
-      
-      // 显示回复
-      this.addMessage(data.answer, 'bot');
-      
-      // 如果是价格推荐，显示转客服选项
-      if (this.isPriceQuery) {
-        this.showServiceOptions();
-        this.isPriceQuery = false;
+      if (data.success) {
+        // 保存会话 ID
+        if (data.conversationId) {
+          this.conversationId = data.conversationId;
+          localStorage.setItem('wujie_conversation_id', this.conversationId);
+        }
+        
+        // 检查是否转人工
+        if (data.transfer) {
+          // 显示转人工提示
+          this.addMessage(data.answer, 'system');
+          // 显示企业微信客服二维码或提示
+          this.showWechatKfQRCode();
+        } else {
+          // 显示 AI 回复
+          this.addMessage(data.answer, 'bot');
+          
+          // 如果是价格推荐，显示转客服选项
+          if (this.isPriceQuery) {
+            this.showServiceOptions();
+            this.isPriceQuery = false;
+          }
+        }
+      } else {
+        this.addMessage('抱歉，服务暂时出现问题，请稍后再试。', 'bot');
       }
     } catch (error) {
       console.error('Send error:', error);
       this.hideTyping();
       this.addMessage('抱歉，服务暂时出现问题，请稍后再试。', 'bot');
     }
+  }
+
+  // 显示企业微信客服二维码
+  showWechatKfQRCode() {
+    const messageEl = document.createElement('div');
+    messageEl.className = 'message bot';
+    messageEl.innerHTML = `
+      <div class="avatar">🍵</div>
+      <div class="content">
+        <p>请扫描下方二维码联系人工客服：</p>
+        <div class="kf-qrcode">
+          <img src="/images/kefu-qrcode.jpg" alt="客服二维码" style="max-width: 200px; border-radius: 8px;">
+        </div>
+        <p style="font-size: 12px; color: #999; margin-top: 8px;">工作时间：9:00-21:00</p>
+      </div>
+    `;
+    this.messagesEl.appendChild(messageEl);
+    this.scrollToBottom();
   }
 
   // 添加消息
