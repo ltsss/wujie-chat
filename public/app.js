@@ -461,26 +461,16 @@ class ChatApp {
     // 显示转接中消息
     this.addMessage('正在为您转接人工客服，请稍候...', 'system');
     
-    // 获取聊天记录摘要
-    const chatSummary = this.getChatSummary();
-    
-    // 模拟转接成功（实际项目中这里调用后端 API）
+    // 跳转到企业微信客服
     setTimeout(() => {
       this.addMessage(`
-        ✅ 转接请求已提交<br>
-        客服将尽快为您服务<br>
-        <small>用户ID: ${this.userId}</small><br>
-        <small>咨询内容: ${reason || '用户请求人工客服'}</small>
+        ✅ 正在跳转到人工客服...<br>
+        如未自动跳转，<a href="https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1" target="_blank">请点击这里</a>
       `, 'system');
       
-      // 显示客服联系方式
-      this.addMessage(`
-        您也可以通过以下方式联系我们：<br>
-        📞 客服热线：400-xxx-xxxx<br>
-        💬 微信公众号：無界茶台<br>
-        工作时间：9:00-21:00
-      `, 'bot');
-    }, 1500);
+      // 打开企业微信客服链接
+      window.open('https://work.weixin.qq.com/kfid/kfcbcbba1b84e6621a1', '_blank');
+    }, 1000);
   }
 
   // 获取聊天摘要（用于转客服时展示）
