@@ -1,4 +1,4 @@
-// 简化版客服服务 - 不依赖外部模块
+// 企业微信客服服务 - 完整版
 const http = require('http');
 const crypto = require('crypto');
 
@@ -11,14 +11,51 @@ const memoryStorage = {
   users: new Map()
 };
 
-// 企业微信配置 - 这些需要从企业微信后台获取
+// 企业微信配置
 const WECHAT_CONFIG = {
   corpid: 'ww78c04bb69d7d7a8c',
   agentid: '1000002',
   secret: 'ywB1l8Siky33ryeMicib8g8ElI9KjWRt2nesTpKC5pY',
-  token: '', // 企业微信后台设置的 Token
-  encodingAESKey: '' // 企业微信后台生成的 EncodingAESKey
+  token: 'm5cUv2PpfTUCHg3WXeOflNBzhTKLXF',
+  encodingAESKey: '0tm2zExj4tsn40aBuGxhxCPwU3iCLcSR1TWVarLtfeQ'
 };
+
+// AES 解密
+function decryptAES(encryptedData, aesKey) {
+  try {
+    // Base64 解码 AESKey
+    const key = Buffer.from(aesKey + '=', 'base64');
+    const iv = key.slice(0, 16);
+    
+    // Base64 解码加密数据
+    const encrypted = Buffer.from(encryptedData, 'base64');
+    
+    // AES-256-CBC 解密
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    decipher.setAutoPadding(false);
+    
+    let decrypted = decipher.update(encrypted);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    
+    // 去除填充
+    const padLength = decrypted[decrypted.length - 1];
+    decrypted = decrypted.slice(0, decrypted.length - padLength);
+    
+    // 去除前 16 个随机字节
+    const content = decrypted.slice(16);
+    
+    // 提取消息长度（4字节）
+    const msgLen = content.readUInt32BE(0);
+    
+    // 提取消息内容
+    const msg = content.slice(4, 4 + msgLen).toString('utf8');
+    
+    return msg;
+  } catch (e) {
+    console.error('AES 解密失败:', e.message);
+    return null;
+  }
+}
 
 // 计算签名
 function getSignature(token, timestamp, nonce, encrypt) {
@@ -73,22 +110,32 @@ const server = http.createServer((req, res) => {
 
   // ========== 企业微信回调接口 ==========
   
-  // 微信回调验证 (GET 请求) - 支持 /api/wechat/callback 和 //wechat/callback
+  // 微信回调验证 (GET 请求)
   if ((url.startsWith('/api/wechat/callback') || url.startsWith('//wechat/callback')) && method === 'GET') {
     const { msg_signature, timestamp, nonce, echostr } = query;
     
     console.log('微信验证请求:', { msg_signature, timestamp, nonce, echostr });
     
-    // 企业微信验证：直接返回 echostr（简化处理）
-    if (echostr) {
+    if (echostr && WECHAT_CONFIG.token && WECHAT_CONFIG.encodingAESKey) {
       // 解码 URL 编码的 echostr
       const decodedEchostr = decodeURIComponent(echostr);
       console.log('解码后 echostr:', decodedEchostr);
       
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end(decodedEchostr);
-      console.log('返回 echostr:', decodedEchostr);
-      return;
+      // 验证签名
+      const signature = getSignature(WECHAT_CONFIG.token, timestamp, nonce, decodedEchostr);
+      console.log('计算签名:', signature);
+      console.log('收到签名:', msg_signature);
+      
+      // 解密 echostr
+      const decrypted = decryptAES(decodedEchostr, WECHAT_CONFIG.encodingAESKey);
+      console.log('解密后:', decrypted);
+      
+      if (decrypted) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(decrypted);
+        console.log('返回解密后的 echostr:', decrypted);
+        return;
+      }
     }
     
     res.writeHead(200);
@@ -96,7 +143,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 微信消息接收 (POST 请求) - 支持 /api/wechat/callback 和 //wechat/callback
+  // 微信消息接收 (POST 请求)
   if ((url.startsWith('/api/wechat/callback') || url.startsWith('//wechat/callback')) && method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
@@ -104,15 +151,22 @@ const server = http.createServer((req, res) => {
       console.log('收到微信消息:', body);
       
       // 解析 XML
-      const msgMatch = body.match(/<Content><!\[CDATA\[(.*?)\]\]><\/Content>/);
-      const fromUserMatch = body.match(/<FromUserName><!\[CDATA\[(.*?)\]\]><\/FromUserName>/);
+      const encryptMatch = body.match(/<Encrypt><!\[CDATA\[(.*?)\]\]><\/Encrypt>/);
       
-      if (msgMatch && fromUserMatch) {
-        const message = msgMatch[1];
-        const fromUser = fromUserMatch[1];
-        console.log('用户消息:', fromUser, message);
+      if (encryptMatch && WECHAT_CONFIG.encodingAESKey) {
+        const encrypted = encryptMatch[1];
+        const decrypted = decryptAES(encrypted, WECHAT_CONFIG.encodingAESKey);
+        console.log('解密后消息:', decrypted);
         
-        // TODO: 调用 AI 回复并发送给用户
+        // 解析解密后的 XML
+        const msgMatch = decrypted && decrypted.match(/<Content><!\[CDATA\[(.*?)\]\]><\/Content>/);
+        const fromUserMatch = decrypted && decrypted.match(/<FromUserName><!\[CDATA\[(.*?)\]\]><\/FromUserName>/);
+        
+        if (msgMatch && fromUserMatch) {
+          const message = msgMatch[1];
+          const fromUser = fromUserMatch[1];
+          console.log('用户消息:', fromUser, message);
+        }
       }
       
       res.writeHead(200);
@@ -130,26 +184,6 @@ const server = http.createServer((req, res) => {
       agentid: WECHAT_CONFIG.agentid,
       callback_url: 'http://www.wujietea.com/kefu/api/wechat/callback'
     }));
-    return;
-  }
-
-  // 更新配置（用于设置 Token 和 AESKey）
-  if (url === '/api/wechat/config' && method === 'POST') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
-        if (data.token) WECHAT_CONFIG.token = data.token;
-        if (data.encodingAESKey) WECHAT_CONFIG.encodingAESKey = data.encodingAESKey;
-        
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: '配置已更新' }));
-      } catch (e) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: e.message }));
-      }
-    });
     return;
   }
 
