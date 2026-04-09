@@ -1,4 +1,11 @@
-const mysql = require('mysql2/promise');
+let mysql;
+try {
+  mysql = require('mysql2/promise');
+} catch (e) {
+  console.warn('⚠️ mysql2 模块未安装，将使用内存存储');
+  mysql = null;
+}
+
 require('dotenv').config();
 
 // 数据库配置
@@ -14,12 +21,34 @@ const dbConfig = {
 };
 
 // 创建连接池
-const pool = mysql.createPool(dbConfig);
+let pool = null;
+if (mysql) {
+  try {
+    pool = mysql.createPool(dbConfig);
+  } catch (e) {
+    console.warn('⚠️ 数据库连接池创建失败:', e.message);
+  }
+}
+
+// 内存存储（数据库不可用时的备用）
+const memoryStorage = {
+  messages: [],
+  transfers: [],
+  users: new Map()
+};
 
 // 数据库操作类
 class Database {
+  constructor() {
+    this.useMemory = !pool;
+  }
+
   // 初始化数据库表
   async init() {
+    if (this.useMemory) {
+      console.log('✅ 使用内存存储模式');
+      return false;
+    }
     try {
       const connection = await pool.getConnection();
       
@@ -74,12 +103,25 @@ class Database {
       return true;
     } catch (error) {
       console.error('❌ 数据库初始化失败:', error.message);
+      this.useMemory = true;
       return false;
     }
   }
   
   // 保存聊天记录
   async saveMessage(userId, conversationId, role, content, intent = null) {
+    if (this.useMemory) {
+      memoryStorage.messages.push({
+        id: Date.now(),
+        user_id: userId,
+        conversation_id: conversationId,
+        role,
+        content,
+        intent,
+        created_at: new Date()
+      });
+      return Date.now();
+    }
     try {
       const [result] = await pool.execute(
         'INSERT INTO chat_messages (user_id, conversation_id, role, content, intent) VALUES (?, ?, ?, ?, ?)',
@@ -94,12 +136,17 @@ class Database {
   
   // 获取用户聊天记录
   async getUserMessages(userId, limit = 50) {
+    if (this.useMemory) {
+      return memoryStorage.messages
+        .filter(m => m.user_id === userId)
+        .slice(-limit);
+    }
     try {
       const [rows] = await pool.execute(
         'SELECT * FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ?',
         [userId, limit]
       );
-      return rows.reverse(); // 按时间正序返回
+      return rows.reverse();
     } catch (error) {
       console.error('获取消息失败:', error.message);
       return [];
@@ -108,6 +155,11 @@ class Database {
   
   // 获取会话聊天记录
   async getConversationMessages(conversationId, limit = 100) {
+    if (this.useMemory) {
+      return memoryStorage.messages
+        .filter(m => m.conversation_id === conversationId)
+        .slice(-limit);
+    }
     try {
       const [rows] = await pool.execute(
         'SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?',
@@ -122,6 +174,19 @@ class Database {
   
   // 保存转人工请求
   async saveTransferRequest(userId, conversationId, reason, chatSummary) {
+    if (this.useMemory) {
+      const id = Date.now().toString();
+      memoryStorage.transfers.push({
+        id,
+        user_id: userId,
+        conversation_id: conversationId,
+        reason,
+        chat_summary: chatSummary,
+        status: 'pending',
+        created_at: new Date()
+      });
+      return id;
+    }
     try {
       const [result] = await pool.execute(
         'INSERT INTO transfer_requests (user_id, conversation_id, reason, chat_summary, status) VALUES (?, ?, ?, ?, ?)',
@@ -136,6 +201,14 @@ class Database {
   
   // 更新转人工状态
   async updateTransferStatus(id, status) {
+    if (this.useMemory) {
+      const transfer = memoryStorage.transfers.find(t => t.id == id);
+      if (transfer) {
+        transfer.status = status;
+        return true;
+      }
+      return false;
+    }
     try {
       await pool.execute(
         'UPDATE transfer_requests SET status = ? WHERE id = ?',
@@ -150,6 +223,13 @@ class Database {
   
   // 获取转人工列表
   async getTransferRequests(status = null, limit = 50) {
+    if (this.useMemory) {
+      let transfers = memoryStorage.transfers;
+      if (status) {
+        transfers = transfers.filter(t => t.status === status);
+      }
+      return transfers.slice(-limit);
+    }
     try {
       let query = 'SELECT * FROM transfer_requests';
       let params = [];
@@ -172,21 +252,35 @@ class Database {
   
   // 保存或更新用户信息
   async saveUserInfo(userId, collectedInfo = null) {
+    if (this.useMemory) {
+      const existing = memoryStorage.users.get(userId);
+      if (existing) {
+        existing.collected_info = collectedInfo;
+        existing.visit_count = (existing.visit_count || 0) + 1;
+        existing.last_visit = new Date();
+      } else {
+        memoryStorage.users.set(userId, {
+          user_id: userId,
+          collected_info: collectedInfo,
+          first_visit: new Date(),
+          last_visit: new Date(),
+          visit_count: 1
+        });
+      }
+      return true;
+    }
     try {
-      // 检查用户是否存在
       const [existing] = await pool.execute(
         'SELECT id FROM user_info WHERE user_id = ?',
         [userId]
       );
       
       if (existing.length > 0) {
-        // 更新
         await pool.execute(
           'UPDATE user_info SET collected_info = ?, visit_count = visit_count + 1 WHERE user_id = ?',
           [JSON.stringify(collectedInfo), userId]
         );
       } else {
-        // 插入
         await pool.execute(
           'INSERT INTO user_info (user_id, collected_info) VALUES (?, ?)',
           [userId, JSON.stringify(collectedInfo)]
@@ -201,6 +295,9 @@ class Database {
   
   // 获取用户信息
   async getUserInfo(userId) {
+    if (this.useMemory) {
+      return memoryStorage.users.get(userId) || null;
+    }
     try {
       const [rows] = await pool.execute(
         'SELECT * FROM user_info WHERE user_id = ?',
@@ -220,6 +317,14 @@ class Database {
   
   // 获取统计信息
   async getStats() {
+    if (this.useMemory) {
+      return {
+        messageCount: memoryStorage.messages.length,
+        userCount: memoryStorage.users.size,
+        transferCount: memoryStorage.transfers.length,
+        pendingTransfer: memoryStorage.transfers.filter(t => t.status === 'pending').length
+      };
+    }
     try {
       const [[messageCount]] = await pool.execute('SELECT COUNT(*) as count FROM chat_messages');
       const [[userCount]] = await pool.execute('SELECT COUNT(*) as count FROM user_info');
