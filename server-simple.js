@@ -73,8 +73,8 @@ const server = http.createServer((req, res) => {
 
   // ========== 企业微信回调接口 ==========
   
-  // 微信回调验证 (GET 请求)
-  if (url.startsWith('/api/wechat/callback') && method === 'GET') {
+  // 微信回调验证 (GET 请求) - 支持 /api/wechat/callback 和 //wechat/callback
+  if ((url.startsWith('/api/wechat/callback') || url.startsWith('//wechat/callback')) && method === 'GET') {
     const { msg_signature, timestamp, nonce, echostr } = query;
     
     console.log('微信验证请求:', { msg_signature, timestamp, nonce, echostr });
@@ -97,8 +97,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 微信消息接收 (POST 请求)
-  if (url.startsWith('/api/wechat/callback') && method === 'POST') {
+  // 微信消息接收 (POST 请求) - 支持 /api/wechat/callback 和 //wechat/callback
+  if ((url.startsWith('/api/wechat/callback') || url.startsWith('//wechat/callback')) && method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
