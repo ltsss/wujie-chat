@@ -416,8 +416,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 前端聊天接口
-  if (url === '/api/chat' && method === 'POST') {
+  // 前端聊天接口（支持 /api/chat 和 /chat）
+  if ((url === '/api/chat' || url === '/chat') && method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
