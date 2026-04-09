@@ -130,7 +130,18 @@ async function callDifyAI(message, userId) {
 
     const data = await response.json();
     console.log('Dify 回复:', data.answer);
-    return data.answer;
+    
+    // 解析 Dify 回复，检查是否转人工
+    try {
+      const answerObj = JSON.parse(data.answer);
+      if (answerObj.transfer === true) {
+        return { transfer: true, message: answerObj.message };
+      }
+      return answerObj.message || data.answer;
+    } catch (e) {
+      // 如果不是 JSON，直接返回文本
+      return data.answer;
+    }
   } catch (error) {
     console.error('Dify 调用失败:', error.message);
     return '抱歉，我暂时无法回答，请稍后再试。';
@@ -299,34 +310,34 @@ const server = http.createServer((req, res) => {
           const fromUser = fromUserMatch[1];
           console.log('用户消息:', fromUser, message);
           
-          // 检查是否是转人工请求
-          const transferKeywords = ['转人工', '人工客服', '找客服', '人工', '客服'];
-          const isTransferRequest = transferKeywords.some(keyword => message.includes(keyword));
-          
-          if (isTransferRequest) {
-            // 保存转人工请求
-            memoryStorage.transfers.push({
-              id: Date.now().toString(),
-              user_id: fromUser,
-              message: message,
-              status: 'pending',
-              created_at: new Date()
-            });
+          // 调用 Dify AI 回复
+          try {
+            const difyResponse = await callDifyAI(message, fromUser);
             
-            // 发送转人工提示
-            await sendWechatMessage(fromUser, '已为您转接人工客服，请稍候，客服人员将尽快为您服务。');
-            console.log('转人工请求已记录:', fromUser);
-          } else {
-            // 调用 Dify AI 回复
-            try {
-              const difyResponse = await callDifyAI(message, fromUser);
-              if (difyResponse) {
-                // 发送回复给用户
-                await sendWechatMessage(fromUser, difyResponse);
-              }
-            } catch (error) {
-              console.error('AI 回复失败:', error.message);
+            // 检查是否转人工（Dify 返回 JSON 格式 {"transfer": true, "message": "..."}）
+            if (difyResponse && typeof difyResponse === 'object' && difyResponse.transfer === true) {
+              // 保存转人工请求
+              memoryStorage.transfers.push({
+                id: Date.now().toString(),
+                user_id: fromUser,
+                message: message,
+                status: 'pending',
+                created_at: new Date()
+              });
+              
+              // 发送转人工提示
+              await sendWechatMessage(fromUser, difyResponse.message || '正在为您转接人工客服，请稍候...');
+              console.log('转人工请求已记录:', fromUser);
+              
+              // TODO: 调用企业微信 API 真正转接到人工客服
+              // await transferToHumanAgent(fromUser);
+            } else if (difyResponse) {
+              // 发送 AI 回复给用户
+              const replyText = typeof difyResponse === 'object' ? difyResponse.message : difyResponse;
+              await sendWechatMessage(fromUser, replyText);
             }
+          } catch (error) {
+            console.error('AI 回复失败:', error.message);
           }
         }
       }
