@@ -38,16 +38,25 @@ class WechatWorkService {
   }
 
   // 发送消息给微信用户
-  async sendMessage(userId, msgType = 'text', content) {
+  async sendMessage(userId, openKfId, content) {
     try {
+      // 截断超长消息（微信限制约 2000 字）
+      const MAX_LENGTH = 2000;
+      let truncatedContent = content;
+      if (content.length > MAX_LENGTH) {
+        truncatedContent = content.substring(0, MAX_LENGTH - 3) + '...';
+        console.log(`⚠️ 消息超长已截断: ${content.length} -> ${truncatedContent.length}`);
+      }
+
       const accessToken = await this.getAccessToken();
       const url = `https://qyapi.weixin.qq.com/cgi-bin/kf/send_msg?access_token=${accessToken}`;
 
       const body = {
         touser: userId,
-        msgtype: msgType,
+        open_kfid: openKfId,
+        msgtype: 'text',
         text: {
-          content: content
+          content: truncatedContent
         }
       };
 
@@ -62,11 +71,44 @@ class WechatWorkService {
         console.log('✅ 消息发送成功');
         return { success: true, msgId: data.msgid };
       } else {
-        throw new Error(`发送消息失败: ${data.errmsg}`);
+        console.error('❌ 发送消息失败:', data);
+        throw new Error(`发送消息失败: ${data.errmsg} (errcode: ${data.errcode})`);
       }
     } catch (error) {
       console.error('❌ 发送消息错误:', error);
       throw error;
+    }
+  }
+
+  // 拉取企业微信消息（解决 95018 错误的关键）
+  async syncMessages(cursor = '') {
+    try {
+      const accessToken = await this.getAccessToken();
+      const url = `https://qyapi.weixin.qq.com/cgi-bin/kf/sync_msg?access_token=${accessToken}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cursor: cursor,
+          token: process.env.WECHAT_TOKEN,
+          limit: 100
+        })
+      });
+
+      const data = await response.json();
+      if (data.errcode === 0) {
+        console.log(`✅ 同步消息成功，获取 ${data.msg_list?.length || 0} 条消息`);
+        return {
+          messages: data.msg_list || [],
+          nextCursor: data.next_cursor
+        };
+      } else {
+        throw new Error(`同步消息失败: ${data.errmsg}`);
+      }
+    } catch (error) {
+      console.error('❌ 同步消息错误:', error);
+      return { messages: [], nextCursor: cursor };
     }
   }
 

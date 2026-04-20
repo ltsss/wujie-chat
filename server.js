@@ -60,39 +60,62 @@ app.get('/api/wechat/callback', (req, res) => {
   res.send(echostr);
 });
 
-// 企业微信消息接收
+// 企业微信消息接收 - 使用 sync_msg 方式处理（解决 95018 错误）
 app.post('/api/wechat/callback', async (req, res) => {
   try {
-    console.log('收到微信消息:', req.body);
-    const { ToUserName, FromUserName, CreateTime, MsgType, Content } = req.body;
+    console.log('📩 收到微信回调:', req.body);
     
-    if (MsgType === 'text' && Content) {
-      // 调用 Dify AI 回复
-      const difyResponse = await fetch(`${DIFY_API_URL}/chat-messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${DIFY_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          inputs: {},
-          query: Content,
-          response_mode: 'blocking',
-          conversation_id: '',
-          user: FromUserName
-        })
-      });
-
-      if (difyResponse.ok) {
-        const data = await difyResponse.json();
-        // 发送回复给用户
-        await wechatService.sendMessage(FromUserName, 'text', data.answer);
-      }
-    }
-    
+    // 立即返回 success，异步处理消息
     res.send('success');
+    
+    // 使用 sync_msg 拉取消息（关键：解决 95018 错误）
+    setImmediate(async () => {
+      try {
+        const { messages } = await wechatService.syncMessages();
+        
+        for (const msg of messages) {
+          // 只处理用户发送的文本消息 (origin=3 表示用户发送)
+          if (msg.msgtype === 'text' && msg.origin === 3) {
+            const userMessage = msg.text?.content;
+            const externalUserId = msg.external_userid;
+            const openKfId = msg.open_kfid;
+            
+            if (!userMessage || !externalUserId) continue;
+            
+            console.log('📝 处理用户消息:', { externalUserId, userMessage: userMessage.substring(0, 50) });
+            
+            // 调用 Dify AI 回复
+            const difyResponse = await fetch(`${DIFY_API_URL}/chat-messages`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${DIFY_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                inputs: {},
+                query: userMessage,
+                response_mode: 'blocking',
+                conversation_id: '',
+                user: externalUserId
+              })
+            });
+
+            if (difyResponse.ok) {
+              const data = await difyResponse.json();
+              // 发送回复给用户（带 openKfId）
+              await wechatService.sendMessage(externalUserId, openKfId, data.answer);
+            } else {
+              console.error('❌ Dify API 错误:', await difyResponse.text());
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ 异步处理消息错误:', error);
+      }
+    });
+    
   } catch (error) {
-    console.error('微信回调处理错误:', error);
+    console.error('❌ 微信回调处理错误:', error);
     res.send('success'); // 微信要求必须返回 success
   }
 });
@@ -100,8 +123,8 @@ app.post('/api/wechat/callback', async (req, res) => {
 // 主动发送消息给微信用户
 app.post('/api/wechat/send', async (req, res) => {
   try {
-    const { userId, content } = req.body;
-    const result = await wechatService.sendMessage(userId, 'text', content);
+    const { userId, openKfId, content } = req.body;
+    const result = await wechatService.sendMessage(userId, openKfId, content);
     res.json({ success: true, result });
   } catch (error) {
     console.error('发送微信消息错误:', error);
